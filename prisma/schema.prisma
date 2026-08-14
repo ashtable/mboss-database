@@ -1,0 +1,65 @@
+// mboss-database/prisma/schema.prisma
+//
+// Shaped per step0's forward-compatibility rule (design-delta §2.1): the waitlist row IS the user
+// record it will become. Phase 0 writes only `status: waiting`, but every column and all four enums
+// land now so Phase 1 never migrates the row's identity.
+//
+// Two deliberate deviations from design-delta §2.1's literal block:
+//   1. `url = env("DATABASE_URL")` is NOT in the datasource — Prisma 7 removed datasource `url`
+//      from schema files (P1012). The connection string lives in prisma.config.ts.
+//   2. `invites Invite[]` / `serialKeys SerialKey[]` are NOT here — Prisma requires both sides of a
+//      relation, and the Invite / SerialKey models are plan.md tasks 16 and 17. They are virtual
+//      fields with no columns, so adding them later emits no DDL against "User".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  waiting
+  invited
+  active
+  disabled
+}
+
+enum IdentitySource {
+  email
+  github
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum SerialKeyStatus {
+  active
+  revoked
+}
+
+model User {
+  id                      String         @id @default(cuid())
+  // Identity. Email is REQUIRED even for github-source rows — invites are emails, and a row with
+  // no email is un-invitable. GitHub signups capture the verified primary email from the profile.
+  email                   String         @unique
+  githubId                String?        @unique
+  source                  IdentitySource
+  status                  UserStatus     @default(waiting)
+  role                    UserRole       @default(user)
+  plan                    String         @default("premium")
+  // Profile (F3/F4) — null until the first-login welcome flow.
+  firstName               String?
+  lastName                String?
+  city                    String?
+  state                   String?
+  country                 String?
+  confirmationEmailSentAt DateTime?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  @@index([status, createdAt])
+}

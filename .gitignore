@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Local connection string; .env.example is committed in its place.
+.env
