@@ -6,9 +6,8 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(join(import.meta.dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
 
 /**
- * The schema with `//` comments stripped. Assertions run against this rather than the raw file so
- * that prose describing a field — including the header comment explaining why the Invite /
- * SerialKey relation arrays are absent — is never mistaken for a declaration of it.
+ * The schema with `//` comments stripped. Presence assertions run against this rather than the raw
+ * file so that prose describing a field is never mistaken for a declaration of it.
  */
 const declarations = source.replace(/\/\/.*$/gm, '');
 
@@ -21,24 +20,40 @@ function enumMembers(name: string): string[] {
 
 describe('schema.prisma enums', () => {
   it.each([
-    ['UserStatus', ['waiting', 'invited', 'active', 'disabled']],
-    ['IdentitySource', ['email', 'github']],
-    ['UserRole', ['user', 'admin']],
-    ['SerialKeyStatus', ['active', 'revoked']],
-  ])('%s declares exactly its design-delta §2.1 members', (name, members) => {
+    ['SubscriberStatus', ['subscribed', 'paused', 'unsubscribed', 'bounced']],
+    ['SubscriberSource', ['email', 'admin']],
+    ['BroadcastStatus', ['draft', 'sending', 'sent', 'failed']],
+    ['DeliveryStatus', ['pending', 'sent', 'failed', 'skipped']],
+  ])('%s declares exactly its design-delta §6.2 members, in order', (name, members) => {
     expect(enumMembers(name)).toEqual(members);
   });
 });
 
-describe('schema.prisma User model', () => {
-  it('carries the composite index the position query and admin tabs need', () => {
+describe('schema.prisma models', () => {
+  it('carries the composite index the admin status tabs page on', () => {
     expect(declarations).toContain('@@index([status, createdAt])');
   });
 
-  it('does not declare relation fields whose models do not exist yet', () => {
-    // Invite and SerialKey are plan.md tasks 16 and 17. Declaring the relation arrays before the
-    // models exist makes `prisma validate` fail (P1012), which is task 3's own done-when.
-    expect(declarations).not.toContain('Invite[]');
-    expect(declarations).not.toContain('SerialKey[]');
+  it('carries the createdAt index the broadcast list orders on', () => {
+    expect(declarations).toContain('@@index([createdAt])');
   });
+
+  it('carries the one-row-per-recipient uniqueness the send step flips on', () => {
+    expect(declarations).toContain('@@unique([broadcastId, subscriberId])');
+  });
+
+  it.each(['Subscriber', 'Broadcast', 'BroadcastDelivery'])('declares model %s', (model) => {
+    expect(declarations).toContain(`model ${model} {`);
+  });
+});
+
+describe('the pivot removed the invite-gate and licensing vocabulary', () => {
+  // design-delta §6.1/§6.3: these strings must not survive anywhere in the file — including in
+  // comments, which is why this asserts against the raw source and matches the `grep` done-when.
+  it.each(['SerialKey', 'Invite', 'UserStatus', 'UserRole', 'IdentitySource'])(
+    'no trace of %s',
+    (dead) => {
+      expect(source).not.toContain(dead);
+    },
+  );
 });
