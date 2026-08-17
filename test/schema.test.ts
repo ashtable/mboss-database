@@ -24,7 +24,7 @@ describe('schema.prisma enums', () => {
     ['SubscriberSource', ['email', 'admin']],
     ['BroadcastStatus', ['draft', 'sending', 'sent', 'failed']],
     ['DeliveryStatus', ['pending', 'sent', 'failed', 'skipped']],
-  ])('%s declares exactly its design-delta §6.2 members, in order', (name, members) => {
+  ])('%s declares exactly its members, in order', (name, members) => {
     expect(enumMembers(name)).toEqual(members);
   });
 });
@@ -48,8 +48,9 @@ describe('schema.prisma models', () => {
 });
 
 describe('the pivot removed the invite-gate and licensing vocabulary', () => {
-  // design-delta §6.1/§6.3: these strings must not survive anywhere in the file — including in
-  // comments, which is why this asserts against the raw source and matches the `grep` done-when.
+  // These strings must not survive anywhere in the file — including inside comments, which is why
+  // this asserts against the raw source rather than the comment-stripped declarations. A dead
+  // symbol left behind in prose is still a reader telling the next person it matters.
   it.each(['SerialKey', 'Invite', 'UserStatus', 'UserRole', 'IdentitySource'])(
     'no trace of %s',
     (dead) => {

@@ -1,5 +1,6 @@
 -- The pivot: the waitlist is a communication channel, not a gate.
--- Safe-destructive: no deployed environment exists; local dev DBs are disposable (design-delta §6.3 [D8]).
+-- Safe-destructive: no deployed environment exists and local dev databases are disposable, so this
+-- drops "User" outright rather than carrying an invite-gate table nothing will ever read again.
 
 -- CreateEnum
 CREATE TYPE "SubscriberStatus" AS ENUM ('subscribed', 'paused', 'unsubscribed', 'bounced');
