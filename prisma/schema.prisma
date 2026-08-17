@@ -1,65 +1,90 @@
-// mboss-database/prisma/schema.prisma
-//
-// Shaped per step0's forward-compatibility rule (design-delta §2.1): the waitlist row IS the user
-// record it will become. Phase 0 writes only `status: waiting`, but every column and all four enums
-// land now so Phase 1 never migrates the row's identity.
-//
-// Two deliberate deviations from design-delta §2.1's literal block:
-//   1. `url = env("DATABASE_URL")` is NOT in the datasource — Prisma 7 removed datasource `url`
-//      from schema files (P1012). The connection string lives in prisma.config.ts.
-//   2. `invites Invite[]` / `serialKeys SerialKey[]` are NOT here — Prisma requires both sides of a
-//      relation, and the Invite / SerialKey models are plan.md tasks 16 and 17. They are virtual
-//      fields with no columns, so adding them later emits no DDL against "User".
+// mboss-database/prisma/schema.prisma  — the mboss.dev cloud database ("the disk").
+// The waitlist is a communication channel, not a gate: no accounts, no invites, no keys.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql"   // no url here — Prisma 7 (P1012); connection via prisma.config.ts
 }
 
-enum UserStatus {
-  waiting
-  invited
-  active
-  disabled
+enum SubscriberStatus {
+  subscribed
+  paused
+  unsubscribed
+  bounced
 }
 
-enum IdentitySource {
+// How the subscriber got here. Only "email" (self-serve signup) exists today; "admin"
+// reserves manual adds without a future enum migration.
+enum SubscriberSource {
   email
-  github
-}
-
-enum UserRole {
-  user
   admin
 }
 
-enum SerialKeyStatus {
-  active
-  revoked
+enum BroadcastStatus {
+  draft
+  sending
+  sent
+  failed
 }
 
-model User {
-  id                      String         @id @default(cuid())
-  // Identity. Email is REQUIRED even for github-source rows — invites are emails, and a row with
-  // no email is un-invitable. GitHub signups capture the verified primary email from the profile.
-  email                   String         @unique
-  githubId                String?        @unique
-  source                  IdentitySource
-  status                  UserStatus     @default(waiting)
-  role                    UserRole       @default(user)
-  plan                    String         @default("premium")
-  // Profile (F3/F4) — null until the first-login welcome flow.
-  firstName               String?
-  lastName                String?
-  city                    String?
-  state                   String?
-  country                 String?
+// pending rows are the broadcast's recipient snapshot — created with the Broadcast in one
+// transaction, then flipped to a terminal status one at a time by the send worker.
+enum DeliveryStatus {
+  pending
+  sent
+  failed
+  skipped
+}
+
+model Subscriber {
+  id                      String              @id @default(cuid())
+  email                   String              @unique
+  status                  SubscriberStatus    @default(subscribed)
+  source                  SubscriberSource    @default(email)
+  // Bumping this revokes every outstanding manage link for this subscriber at once: a link
+  // carries the version it was minted against, and verification rejects a stale one.
+  tokenVersion            Int                 @default(1)
   confirmationEmailSentAt DateTime?
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
+  pausedAt                DateTime?
+  unsubscribedAt          DateTime?
+  bouncedAt               DateTime?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  deliveries              BroadcastDelivery[]
 
   @@index([status, createdAt])
+}
+
+model Broadcast {
+  id             String              @id @default(cuid())
+  subject        String
+  bodyMarkdown   String
+  // Which subscriber statuses this broadcast goes to: subscribed, and optionally paused too.
+  audience       SubscriberStatus[]
+  teaserImageUrl String?
+  status         BroadcastStatus     @default(draft)
+  createdBy      String              // admin email from the M365 session (x-admin-actor)
+  recipientCount Int?                // set atomically with the pending delivery rows at creation
+  createdAt      DateTime            @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  deliveries     BroadcastDelivery[]
+
+  @@index([createdAt])
+}
+
+model BroadcastDelivery {
+  id           String         @id @default(cuid())
+  broadcastId  String
+  subscriberId String
+  status       DeliveryStatus @default(pending)
+  error        String?
+  updatedAt    DateTime       @updatedAt   // creation time while pending; flip time thereafter
+  broadcast    Broadcast      @relation(fields: [broadcastId], references: [id])
+  subscriber   Subscriber     @relation(fields: [subscriberId], references: [id])
+
+  @@unique([broadcastId, subscriberId])   // one row per recipient; the pending→terminal flip key for the DBOS send step
 }
