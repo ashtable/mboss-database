@@ -6,5 +6,6 @@ export default tseslint.config(
   { ignores: ['node_modules/**', 'coverage/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  prettier, // last — turns off rules that fight Prettier
+  // last — turns off rules that fight Prettier
+  prettier,
 );

@@ -1,14 +1,24 @@
-// mboss-database/prisma/schema.prisma  — the mboss.dev cloud database ("the disk").
-// The waitlist is a communication channel, not a gate: no accounts, no invites, no keys.
+// mboss-database/prisma/schema.prisma —
+// mboss.dev's cloud database (the disk).
+// The waitlist is a communication channel, not a
+// gate: no accounts, no invites, no keys.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"   // no url here — Prisma 7 (P1012); connection via prisma.config.ts
+  // No url here (Prisma 7, P1012) — the
+  // connection string comes from
+  // prisma.config.ts instead.
+  provider = "postgresql"
 }
 
+/**
+ * The states a subscriber moves through.
+ * `bounced` is terminal, reached only from a
+ * delivery failure, never a self-serve action.
+ */
 enum SubscriberStatus {
   subscribed
   paused
@@ -16,13 +26,20 @@ enum SubscriberStatus {
   bounced
 }
 
-// How the subscriber got here. Only "email" (self-serve signup) exists today; "admin"
-// reserves manual adds without a future enum migration.
+// How the subscriber got here. Only "email"
+// (self-serve signup) exists today; "admin"
+// reserves manual adds without a future enum
+// migration.
 enum SubscriberSource {
   email
   admin
 }
 
+/**
+ * A broadcast's lifecycle: drafted, then handed
+ * to the send worker, which moves it to `sent`
+ * or `failed` once every delivery is attempted.
+ */
 enum BroadcastStatus {
   draft
   sending
@@ -30,8 +47,10 @@ enum BroadcastStatus {
   failed
 }
 
-// pending rows are the broadcast's recipient snapshot — created with the Broadcast in one
-// transaction, then flipped to a terminal status one at a time by the send worker.
+// pending rows are the broadcast's recipient
+// snapshot — created with the Broadcast in one
+// transaction, then flipped to a terminal status
+// one at a time by the send worker.
 enum DeliveryStatus {
   pending
   sent
@@ -39,13 +58,21 @@ enum DeliveryStatus {
   skipped
 }
 
+/**
+ * One row per waitlist subscriber. The nullable
+ * timestamps mirror `SubscriberStatus`: one per
+ * non-default state, naming both the state and
+ * when it began.
+ */
 model Subscriber {
   id                      String              @id @default(cuid())
   email                   String              @unique
   status                  SubscriberStatus    @default(subscribed)
   source                  SubscriberSource    @default(email)
-  // Bumping this revokes every outstanding manage link for this subscriber at once: a link
-  // carries the version it was minted against, and verification rejects a stale one.
+  // Bumping this revokes every outstanding manage
+  // link for this subscriber at once: a link
+  // carries the version it was minted against,
+  // and verification rejects a stale one.
   tokenVersion            Int                 @default(1)
   confirmationEmailSentAt DateTime?
   pausedAt                DateTime?
@@ -58,16 +85,27 @@ model Subscriber {
   @@index([status, createdAt])
 }
 
+/**
+ * One row per admin-authored broadcast.
+ * `recipientCount` is meant to be set alongside
+ * the delivery rows it snapshots, so the two
+ * always agree.
+ */
 model Broadcast {
   id             String              @id @default(cuid())
   subject        String
   bodyMarkdown   String
-  // Which subscriber statuses this broadcast goes to: subscribed, and optionally paused too.
+  // Which subscriber statuses this broadcast goes
+  // to: subscribed, and optionally paused too.
   audience       SubscriberStatus[]
   teaserImageUrl String?
   status         BroadcastStatus     @default(draft)
-  createdBy      String              // admin email from the M365 session (x-admin-actor)
-  recipientCount Int?                // set atomically with the pending delivery rows at creation
+  // Admin email from the M365 session
+  // (x-admin-actor).
+  createdBy      String
+  // Set atomically with the pending delivery rows
+  // at creation.
+  recipientCount Int?
   createdAt      DateTime            @default(now())
   startedAt      DateTime?
   completedAt    DateTime?
@@ -76,15 +114,25 @@ model Broadcast {
   @@index([createdAt])
 }
 
+/**
+ * One row per (broadcast, subscriber) pair — the
+ * recipient snapshot taken when the broadcast is
+ * created, later flipped by the send worker to a
+ * terminal status.
+ */
 model BroadcastDelivery {
   id           String         @id @default(cuid())
   broadcastId  String
   subscriberId String
   status       DeliveryStatus @default(pending)
   error        String?
-  updatedAt    DateTime       @updatedAt   // creation time while pending; flip time thereafter
+  // Creation time while pending; flip time
+  // thereafter.
+  updatedAt    DateTime       @updatedAt
   broadcast    Broadcast      @relation(fields: [broadcastId], references: [id])
   subscriber   Subscriber     @relation(fields: [subscriberId], references: [id])
 
-  @@unique([broadcastId, subscriberId])   // one row per recipient; the pending→terminal flip key for the DBOS send step
+  // One row per recipient; the pending→terminal
+  // flip key for the DBOS send step.
+  @@unique([broadcastId, subscriberId])
 }
